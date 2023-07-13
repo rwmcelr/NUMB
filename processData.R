@@ -10,6 +10,8 @@ homeDir <- "C:/Users/robmc/Desktop/NUMB_files" # Create root data directory poin
 ## processData function ##----------------------
 processData <- function(directory) {
   setwd(paste0(homeDir, "/data/", directory))
+  setwd(homeDir)
+  filt <- read.csv("updatedClinical.csv")
   setwd(paste0(homeDir,"/data/skcm_tcga"))
   
   # Create initial clinical file by merging patient and sample data
@@ -19,11 +21,13 @@ processData <- function(directory) {
   # Remove clinical features which only contain NA values
   clin[clin == "[Not Available]"] <- NA
   clin <- Filter(function(x)!all(is.na(x)), clin)
-  clin <- clin[clin$SAMPLE_ID %in% clinFilt$SAMPLE_ID, ]
+  clin <- clin[clin$SAMPLE_ID %in% filt$SAMPLE_ID, ]
   
   # Read in mutation data, accounting for both formats in cBioPortal
   if (!file.exists("data_mutations.txt")) { mutations <- fread("data_mutations_extended.txt") 
   } else { mutations <- fread("data_mutations.txt")}
+  # Make sure all samples with mutations to be analyzed have associated clinical annotations
+  mutations <- mutations[mutations$Tumor_Sample_Barcode %in% clin$SAMPLE_ID, ]
   
   # Format chromosome column to match BSgenome format
   mutations$Chromosome <- sub("^", "chr", mutations$Chromosome)
@@ -59,7 +63,6 @@ processData <- function(directory) {
   write.csv(expo, "mutationalSignatures.csv")
   
   # Create new UV signature annotation column based on % of mutational signature contribution by UV exposure
-  #### SOMETHING IS BREAKING HERE ############
   clinFinal <- clin[which(clin$SAMPLE_ID %in% expo$SAMPLE_ID), ]
   clinFinal$UV_sig_value <- expo$UV_sig
   clinFinal$UV_sig[clinFinal$UV_sig_value >= 0.65] <- "High"
@@ -76,12 +79,13 @@ processData <- function(directory) {
   
   # Parse through each sample with available UV signature data, and note mutation status of each NER gene (0 = WT, 1 = Mut)
   clinMut <- as.data.frame(clinFinal$Tumor_Sample_Barcode)
-  for (i in NER) {
+  colnames(clinMut)[1] <- "Tumor_Sample_Barcode"
+  for (i in NERgenes) {
     mut <- mutations[mutations$Hugo_Symbol == i]
     clinMut[[i]] <- 0
     clinMut[[i]][clinMut$Tumor_Sample_Barcode %in% mut$Tumor_Sample_Barcode] <- 1
   }
-  write.csv(clinMut, "mutSig.csv", row.names = F)
+  write.csv(clinMut, "NER_mutSig.csv", row.names = F)
   
   ############ ENDED HERE FOR THE NIGHT, BELOW NEEDS TO BE CHECKED AND COMMENTED ######################
   cnv <- fread("data_cna.txt")
@@ -91,11 +95,12 @@ processData <- function(directory) {
   cnv2 <- cnv2[cnv2$Sample_name %in% clinFinal$Tumor_Sample_Barcode, ]
   cnv2$Gene[cnv2$Gene == "CUL4A" | cnv2$Gene == "CUL4B"] <- "CUL4A/B"
   
-  clinCNV <- clinFinal
-  for (i in NER) {
+  clinCNV <- as.data.frame(clinFinal$Tumor_Sample_Barcode[clinFinal$Tumor_Sample_Barcode %in% cnv2$Sample_name])
+  colnames(clinCNV)[1] <- "Tumor_Sample_Barcode"
+  for (i in NERgenes) {
     cnv <- cnv2[cnv2$Gene == i, ]
     clinCNV[[i]] <- 0
-    clinCNV[[i]][match(cnv$Sample_name, clinCNV$Tumor_Sample_Barcode)] <- cnv$CN
+    clinCNV[[i]][match(cnv2$Sample_name, clinCNV$Tumor_Sample_Barcode)] <- cnv2$CN
   }
-  write.csv(clinCNV, "cnvSig.csv", row.names = F)
+  write.csv(clinCNV, "NER_cnvSig.csv", row.names = F)
 }
