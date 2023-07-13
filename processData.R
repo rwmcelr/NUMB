@@ -2,6 +2,7 @@
 library(BSgenome.Hsapiens.UCSC.hg19)
 library(deconstructSigs)
 library(data.table)
+library(dplyr)
 source("C:/Users/robmc/Desktop/NUMB/repairGenes.R") # Load repair genes as list objects
 load("C:/Users/robmc/Desktop/NUMB_files/data/signatures.genome.cosmic.v3.may2019.rda")
 '%notin%' <- Negate('%in%')
@@ -11,7 +12,6 @@ homeDir <- "C:/Users/robmc/Desktop/NUMB_files" # Create root data directory poin
 processData <- function(directory) {
   setwd(paste0(homeDir, "/data/", directory))
   setwd(homeDir)
-  filt <- read.csv("updatedClinical.csv")
   setwd(paste0(homeDir,"/data/skcm_tcga"))
   
   # Create initial clinical file by merging patient and sample data
@@ -21,7 +21,6 @@ processData <- function(directory) {
   # Remove clinical features which only contain NA values
   clin[clin == "[Not Available]"] <- NA
   clin <- Filter(function(x)!all(is.na(x)), clin)
-  clin <- clin[clin$SAMPLE_ID %in% filt$SAMPLE_ID, ]
   
   # Read in mutation data, accounting for both formats in cBioPortal
   if (!file.exists("data_mutations.txt")) { mutations <- fread("data_mutations_extended.txt") 
@@ -87,7 +86,7 @@ processData <- function(directory) {
   }
   write.csv(clinMut, "NER_mutSig.csv", row.names = F)
   
-  ############ ENDED HERE FOR THE NIGHT, BELOW NEEDS TO BE CHECKED AND COMMENTED ######################
+  # Parse through each sample with available CNV data, and denote CNV status of each NER gene (-2,-1 = Del, 0 = WT, 1,2 = Amp)
   cnv <- fread("data_cna.txt")
   cnv <- unique(cnv[!duplicated(cnv$Hugo_Symbol), ])
   cnv2 <- reshape2::melt(cnv, id.vars = "Hugo_Symbol")
@@ -100,7 +99,35 @@ processData <- function(directory) {
   for (i in NERgenes) {
     cnv <- cnv2[cnv2$Gene == i, ]
     clinCNV[[i]] <- 0
-    clinCNV[[i]][match(cnv2$Sample_name, clinCNV$Tumor_Sample_Barcode)] <- cnv2$CN
+    clinCNV[[i]][match(cnv$Sample_name, clinCNV$Tumor_Sample_Barcode)] <- cnv$CN
   }
   write.csv(clinCNV, "NER_cnvSig.csv", row.names = F)
+  
+  m <- clinMut[,2:26]
+  rownames(m) <- clinMut$Tumor_Sample_Barcode
+  m <- m*0.1
+  
+  c <- clinCNV[,2:26]
+  rownames(c) <- clinCNV$Tumor_Sample_Barcode
+  
+  both <- bind_rows(c %>% tibble::rownames_to_column(), 
+                    m %>% tibble::rownames_to_column()) %>% 
+    # evaluate following calls for each value in the rowname column
+    group_by(rowname) %>% 
+    # add all non-grouping variables
+    summarise_all(sum)
+  
+  both[both == 0 | both == 1 | both == 2] <- 0
+  both[both == -0.9 | both == -1.9] <- 1
+  both[both == 0.1] <- 1
+  both[both == -1 | both == -2] <- 1
+  both[both == 1.1 | both == 2.1] <- 1
+  
+  nerSig <- both[ , colnames(both) %in% c("CETN2", "GTF2H2", "ERCC8", "CDK7", "CCNH", "ERCC6", "RAD23B")]
+  nerSig$NER_sig <- with(nerSig, rowSums(nerSig))
+  nerSig$Tumor_Sample_Barcode <- both$rowname
+  keep <- nerSig[,c("Tumor_Sample_Barcode", "NER_sig")]
+  
+  allDat <- merge(clinFinal, keep, by = "Tumor_Sample_Barcode")
+  write.csv(allDat, "clinical.csv")
 }
