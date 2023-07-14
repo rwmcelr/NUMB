@@ -4,9 +4,11 @@ library(deconstructSigs)
 library(data.table)
 library(dplyr)
 source("C:/Users/robmc/Desktop/NUMB/repairGenes.R") # Load repair genes as list objects
+# source("C:/Users/Robert/Documents/NUMB/repairGenes.R")
 load("C:/Users/robmc/Desktop/NUMB_files/data/signatures.genome.cosmic.v3.may2019.rda")
 '%notin%' <- Negate('%in%')
-homeDir <- "C:/Users/robmc/Desktop/NUMB_files" # Create root data directory pointer 
+homeDir <- "C:/Users/robmc/Desktop/NUMB_files" # Create root data directory pointer
+# homeDir <- "C:/Users/Robert/Desktop/NUMB_files"
 
 ## processData function ##----------------------
 processData <- function(directory) {
@@ -86,13 +88,13 @@ processData <- function(directory) {
   }
   write.csv(clinMut, "NER_mutSig.csv", row.names = F)
   
-  # Prepare CNV data for analysis (remove duplicated symbols, allow matching by sample names, fix CUL4A/CUL4B naming)
+  # Reformat CNV data to be more usable (remove duplicated gene entries, reshape data frame to match mutation format)
   cnv <- fread("data_cna.txt")
   cnv <- unique(cnv[!duplicated(cnv$Hugo_Symbol), ])
   cnv2 <- reshape2::melt(cnv, id.vars = "Hugo_Symbol")
   colnames(cnv2) <- c("Gene", "Sample_name", "CN")
   cnv2 <- cnv2[cnv2$Sample_name %in% clinFinal$Tumor_Sample_Barcode, ]
-  cnv2$Gene[cnv2$Gene == "CUL4A" | cnv2$Gene == "CUL4B"] <- "CUL4A/B"
+  cnv2$Gene[cnv2$Gene == "CUL4A" | cnv2$Gene == "CUL4B"] <- "CUL4A/B" # Match earlier CUL4A/CUL4B formatting
   
   # Parse through each sample with available CNV data, and denote CNV status of each NER gene (-2,-1 = Del, 0 = WT, 1,2 = Amp)
   clinCNV <- as.data.frame(clinFinal$Tumor_Sample_Barcode[clinFinal$Tumor_Sample_Barcode %in% cnv2$Sample_name])
@@ -104,13 +106,12 @@ processData <- function(directory) {
   }
   write.csv(clinCNV, "NER_cnvSig.csv", row.names = F)
   
+  # Creating temporary frames of mut and CNV data for merging
+  m <- data.frame(clinMut, row.names = 1)
+  m <- m*0.1 # Setting mutation values to decimals to delineate between mut and CNV values
+  c <- data.frame(clinCNV, row.names = 1)
   
-  m <- clinMut[,2:26]
-  rownames(m) <- clinMut$Tumor_Sample_Barcode
-  m <- m*0.1
-  c <- clinCNV[,2:26]
-  rownames(c) <- clinCNV$Tumor_Sample_Barcode
-  
+  # Summing all mut and CNV values together to combine effects
   both <- bind_rows(c %>% tibble::rownames_to_column(), 
                     m %>% tibble::rownames_to_column()) %>% 
     # evaluate following calls for each value in the rowname column
@@ -118,27 +119,20 @@ processData <- function(directory) {
     # add all non-grouping variables
     summarise_all(sum)
   
-  both[both == 0 | both == 1 | both == 2] <- 0
-  both[both == -0.9 | both == -1.9] <- 1
-  both[both == 0.1] <- 1
-  both[both == -1 | both == -2] <- 1
-  both[both == 1.1 | both == 2.1] <- 1
+  # Change combined mutation+cnv dataframe to binary values (0 = Not affected, 1 = affected)
+  both[both == 0 | both == 1 | both == 2] <- 0 # If WT | amp : not affected
+  both[both == -0.9 | both == -1.9] <- 1 # If mutated + deleted : affected
+  both[both == 0.1] <- 1 # If only mutated : affected
+  both[both == -1 | both == -2] <- 1 # If only deleted : affected 
+  both[both == 1.1 | both == 2.1] <- 1 # If mutated + amp : affected (mutations are non-silent)
   
+  # Pull out genes used for NER signature, as of 7/13/2023 these genes may still change
   nerSig <- both[ , colnames(both) %in% c("CETN2", "GTF2H2", "ERCC8", "CDK7", "CCNH", "ERCC6", "RAD23B")]
-  nerSig$NER_sig <- with(nerSig, rowSums(nerSig))
+  nerSig$NER_sig <- with(nerSig, rowSums(nerSig)) # Generate total NER signature 
   nerSig$Tumor_Sample_Barcode <- both$rowname
   keep <- nerSig[,c("Tumor_Sample_Barcode", "NER_sig")]
   
+  # Append NER signature to clinical information, write finalized clinical file to csv
   allDat <- merge(clinFinal, keep, by = "Tumor_Sample_Barcode")
-  write.csv(allDat, "clinical.csv", row.names = 1)
-  
-  # Testing results
-  clin <- read.csv("clinical.csv")
-  if (!file.exists("data_mutations.txt")) { mutations <- fread("data_mutations_extended.txt") 
-  } else { mutations <- fread("data_mutations.txt")}
-  mutations <- mutations[mutations$Tumor_Sample_Barcode %in% clin$SAMPLE_ID, ]
-  mutations$Hugo_Symbol[mutations$Hugo_Symbol == "CUL4A" | mutations$Hugo_Symbol == "CUL4B"] <- "CUL4A/B" 
-  cnv <- fread("data_cna.txt")
-  nerCNV <- read.csv("NER_cnvSig.csv")
-  nerMut <- read.csv("NER_mutSig.csv")
+  write.csv(allDat, "clinical.csv")
 }
