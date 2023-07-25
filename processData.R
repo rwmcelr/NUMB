@@ -4,11 +4,9 @@ library(deconstructSigs)
 library(data.table)
 library(dplyr)
 source("C:/Users/robmc/Desktop/NUMB/repairGenes.R") # Load repair genes as list objects
-# source("C:/Users/Robert/Documents/NUMB/repairGenes.R")
-load("C:/Users/robmc/Desktop/NUMB_files/data/signatures.genome.cosmic.v3.may2019.rda")
+load("C:/Users/robmc/Desktop/NUMB_files/data/signatures.genome.cosmic.v3.may2019.rda") # Load Cosmic Signature file
 '%notin%' <- Negate('%in%')
 homeDir <- "C:/Users/robmc/Desktop/NUMB_files" # Create root data directory pointer
-# homeDir <- "C:/Users/Robert/Desktop/NUMB_files"
 
 ## processData function ##----------------------
 processData <- function(directory) {
@@ -39,6 +37,7 @@ processData <- function(directory) {
   # Filter out samples with low mutation count as suggested by deconstructSigs package
   # This number can be changed, but further reading should be done to choose mutation cutoff
   finalMut <- sigs[rowSums(sigs)>50,]
+  write.csv(finalMut, "tnm.csv") # Generate TNM table for later plotting
   results <- vector("list", nrow(finalMut))
   names(results) <- row.names(finalMut)
   
@@ -61,7 +60,7 @@ processData <- function(directory) {
   expo <- expo[order(-expo$UV_sig),]
   expo$SAMPLE_ID <- gsub(".weights","",expo$SAMPLE_ID)
   # Output imputed signatures with COSMIC signature names for downstream analysis / plot generation
-  write.csv(expo, "mutationalSignatures.csv")
+  write.csv(expo, "mutationalSignatures.csv", row.names = F)
   
   # Create new UV signature annotation column based on % of mutational signature contribution by UV exposure
   clinFinal <- clin[which(clin$SAMPLE_ID %in% expo$SAMPLE_ID), ]
