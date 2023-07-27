@@ -11,8 +11,8 @@ homeDir <- "C:/Users/robmc/Desktop/NUMB_files" # Create root data directory poin
 ## processData function ##----------------------
 processData <- function(directory) {
   setwd(paste0(homeDir, "/data/", directory))
-  setwd(homeDir)
   setwd(paste0(homeDir,"/data/skcm_tcga"))
+  filter <- read.csv("filter.csv")
   
   # Create initial clinical file by merging patient and sample data
   sample <- fread("data_clinical_sample.txt", skip=4)
@@ -21,6 +21,7 @@ processData <- function(directory) {
   # Remove clinical features which only contain NA values
   clin[clin == "[Not Available]"] <- NA
   clin <- Filter(function(x)!all(is.na(x)), clin)
+  clin <- clin[clin$SAMPLE_ID %in% filter$SAMPLE_ID]
   
   # Read in mutation data, accounting for both formats in cBioPortal
   if (!file.exists("data_mutations.txt")) { mutations <- fread("data_mutations_extended.txt") 
@@ -64,6 +65,7 @@ processData <- function(directory) {
   
   # Create new UV signature annotation column based on % of mutational signature contribution by UV exposure
   clinFinal <- clin[which(clin$SAMPLE_ID %in% expo$SAMPLE_ID), ]
+  expo <- expo[order(expo$SAMPLE_ID),]
   clinFinal$UV_sig_value <- expo$UV_sig
   clinFinal$UV_sig[clinFinal$UV_sig_value >= 0.65] <- "High"
   clinFinal$UV_sig[clinFinal$UV_sig_value < 0.65 &
