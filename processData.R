@@ -135,5 +135,5 @@ processData <- function(directory) {
   
   # Append NER signature to clinical information, write finalized clinical file to csv
   allDat <- merge(clinFinal, keep, by = "Tumor_Sample_Barcode")
-  write.csv(allDat, "clinical.csv")
+  write.csv(allDat, "clinical.csv", row.names = F)
 }
