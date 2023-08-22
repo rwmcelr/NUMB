@@ -60,6 +60,8 @@ plotSigs <- function(sigs, clin) {
           panel.background = element_blank(), axis.line = element_line(colour = "black"))
   print(UVbyLplot)
   ggsave(paste0(dataDir,"_AvgUVsigByLevel.pdf"))
+  
+  print("Signature graphs generated successfully!")
 }
   
 plotTNM <- function(clin, tnm) {
@@ -105,6 +107,8 @@ plotTNM <- function(clin, tnm) {
           panel.background = element_blank(), axis.line = element_line(colour = "black"))
   print(CTbreakdownPlot)
   ggsave(paste0(dataDir,"_CTdipyrPctByLevel.pdf"))
+  
+  print("TNM graphs generated successfully!")
 }
 
 plotSNVs <- function(clin, mutations) {
@@ -165,6 +169,77 @@ plotSNVs <- function(clin, mutations) {
   # Mean lines in this graph need to be adjusted in illustrator to only cover their respective UV level
   TMBplot
   ggsave("TMB.pdf", width = 12, height = 2, units = "in")
+  
+  print("SNV graphs generated successfully!")
+}
+
+plotFeatures <- function(clin) {
+  # Age plot
+  clin$Age_Group[clin$AGE < 30] <- "< 30"
+  clin$Age_Group[clin$AGE >= 30 &
+                   clin$AGE <= 50] <- "30-50"
+  clin$Age_Group[clin$AGE > 50 &
+                   clin$AGE <= 80] <- "51-80"
+  clin$Age_Group[clin$AGE > 80] <- "80+"
+  agecolors <- sequential_hcl(4, palette="Viridis")
+  
+  ageTable <- prop.table(table(clin$Age_Group, clin$UV_sig), margin = 1)
+  age <- as.data.frame(ageTable[,1])
+  colnames(age) <- "High"
+  agePlot <- ggplot(age, aes(x = rownames(age), y = High))+
+    geom_col(aes(fill = rownames(age)), width = 0.6, position = "stack") +
+    coord_flip() +
+    scale_fill_manual(values = agecolors) +
+    theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+          panel.background = element_blank(), axis.line = element_line(colour = "black"), legend.text=element_text(size = 8))
+  agePlot
+  ggsave("HighByAge.pdf", width = 6, height = 3, units = "in")
+  
+  # Stage plot (SKCM specific, needs to be formatted for different stage naming conventions ot be applicable to other cohorts)
+  if ("AJCC_PATHOLOGIC_TUMOR_STAGE" %in% colnames(clin)) {
+    clin$AJCC_PATHOLOGIC_TUMOR_STAGE <- gsub('[ABC]', '', clin$AJCC_PATHOLOGIC_TUMOR_STAGE)
+    clin$AJCC_PATHOLOGIC_TUMOR_STAGE[clin$AJCC_PATHOLOGIC_TUMOR_STAGE == "Stage III" |
+                                     clin$AJCC_PATHOLOGIC_TUMOR_STAGE == "Stage IV"] <- "High Stage"
+    clin$AJCC_PATHOLOGIC_TUMOR_STAGE[is.na(clin$AJCC_PATHOLOGIC_TUMOR_STAGE) == F & 
+                                     clin$AJCC_PATHOLOGIC_TUMOR_STAGE != "High Stage"] <- "Low Stage"
+    
+    stageDat <- table(clin$AJCC_PATHOLOGIC_TUMOR_STAGE, clin$UV_sig)
+    stageTable <- stageDat[,-3]
+    stage <- as.data.frame(prop.table(stageTable, margin = 2))
+    stagePlot <- ggplot(stage, aes(x = Var2, y = Freq)) + 
+      geom_col(aes(fill = Var1), width = 0.6, position = "dodge") +
+      coord_flip() +
+      scale_fill_manual(values = c("#E3242B", "#0A1172")) +
+      labs(fill = "Stage", x = "UV Level", y = "Stage Prevalence (%)") +
+      theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+            panel.background = element_blank(), axis.line = element_line(colour = "black"), legend.text=element_text(size = 8))
+    stagePlot
+    ggsave("HighByStage.pdf", width = 6, height = 3, units = "in")
+  }
+  
+  # Rest of clinical features as bar graph which lines up with plotted signatures
+  features <- list()
+  input <- ""
+  while (input != "done") {
+    input <- readline(prompt = "Enter name of clinical feature for analysis exactly as it appears in clinical info. \nEnter 'help' for a list of clinical features, or enter 'done' to exit: ")
+    if (input == "help") {
+      print(colnames(clin))
+    } else if (input == "done") {
+      print("Exiting, rest of function will now complete.")
+    } else if (input %notin% colnames(clin)) { 
+      print("Feature not found, please try again!")
+    } else {
+      features <- append(features, input)
+      print("Feature added successfully!")
+    }
+  }
+  # Create bar graphs
+  
+  print("Feature graphs generated successfully!")
+}
+
+plotGenes <- function(clin, mutations) {
+  # move in control gene functions
 }
 
 ## Execute code -------------------
