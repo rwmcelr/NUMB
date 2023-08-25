@@ -71,7 +71,6 @@ processData <- function(directory) {
   clinFinal$UV_sig[clinFinal$UV_sig_value < 0.65 &
                      clinFinal$UV_sig_value > 0.2] <- "Moderate"
   clinFinal$UV_sig[clinFinal$UV_sig_value <= 0.2] <- "Low"
-  clinFinal <- clinFinal[order(-clinFinal$UV_sig_value),]
   # Create tumor_sample_barcode column which is necessary for some maftools package functions
   clinFinal$Tumor_Sample_Barcode <- clinFinal$SAMPLE_ID
   
@@ -135,5 +134,6 @@ processData <- function(directory) {
   
   # Append NER signature to clinical information, write finalized clinical file to csv
   allDat <- merge(clinFinal, keep, by = "Tumor_Sample_Barcode")
+  allDat <- allDat[order(-allDat$UV_sig_value),]
   write.csv(allDat, "clinical.csv", row.names = F)
 }

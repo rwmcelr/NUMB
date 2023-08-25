@@ -188,6 +188,7 @@ plotFeatures <- function(clin) {
   colnames(age) <- "High"
   agePlot <- ggplot(age, aes(x = rownames(age), y = High))+
     geom_col(aes(fill = rownames(age)), width = 0.6, position = "stack") +
+    labs(fill = "Age Group", y = "Prevalence of Sig 7 High (%)", x = "Age Group") +
     coord_flip() +
     scale_fill_manual(values = agecolors) +
     theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
@@ -195,7 +196,7 @@ plotFeatures <- function(clin) {
   agePlot
   ggsave("HighByAge.pdf", width = 6, height = 3, units = "in")
   
-  # Stage plot (SKCM specific, needs to be formatted for different stage naming conventions ot be applicable to other cohorts)
+  # Stage plot (SKCM specific, needs to be formatted for different stage naming conventions to be applicable to other cohorts)
   if ("AJCC_PATHOLOGIC_TUMOR_STAGE" %in% colnames(clin)) {
     clin$AJCC_PATHOLOGIC_TUMOR_STAGE <- gsub('[ABC]', '', clin$AJCC_PATHOLOGIC_TUMOR_STAGE)
     clin$AJCC_PATHOLOGIC_TUMOR_STAGE[clin$AJCC_PATHOLOGIC_TUMOR_STAGE == "Stage III" |
@@ -233,8 +234,20 @@ plotFeatures <- function(clin) {
       print("Feature added successfully!")
     }
   }
-  # Create bar graphs
-  
+  for (i in 1:length(features)) {
+    # STILL NEEDS: custom colors (maybe), change offset so graph is flush with x and y axis
+    # Remove quantification 
+    i <- 1
+    tClin <- clin[,c(features[[i]], "UV_sig_value")] 
+    tClin$index <- 1:nrow(tClin)
+    featureGraph <- ggplot(tClin, aes(x = index)) +
+      geom_bar(aes(fill = tClin[,1])) +
+      labs(fill = colnames(tClin)[1], x = "Signature 7 (decreasing)") +
+      theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+            panel.background = element_blank(), axis.line = element_line(colour = "black"), legend.text=element_text(size = 8),
+            axis.text.y = element_blank(), axis.ticks.y = element_blank(), axis.ticks.x = element_blank())
+    featureGraph
+  }
   print("Feature graphs generated successfully!")
 }
 
@@ -247,6 +260,7 @@ dataDir <- "skcm_tcga"
 setwd(paste0(homeDir, "/data/", dataDir))
 
 clin <- read.csv("clinical.csv")
+clin <- clin[order(-clin$UV_sig_value),]
 sigs <- read.csv("mutationalSignatures.csv", row.names = "SAMPLE_ID")
 tnm <- read.csv("tnm.csv")
 if (!file.exists("data_mutations.txt")) { mutations <- fread("data_mutations_extended.txt") 
