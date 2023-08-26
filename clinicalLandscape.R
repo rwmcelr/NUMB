@@ -226,6 +226,7 @@ plotFeatures <- function(clin) {
     if (input == "help") {
       print(colnames(clin))
     } else if (input == "done") {
+      features <- append(features, "UV_sig")
       print("Exiting, rest of function will now complete.")
     } else if (input %notin% colnames(clin)) { 
       print("Feature not found, please try again!")
@@ -234,25 +235,79 @@ plotFeatures <- function(clin) {
       print("Feature added successfully!")
     }
   }
+  
+  cols <- hcl_palettes("sequential")
   for (i in 1:length(features)) {
-    # STILL NEEDS: custom colors (maybe), change offset so graph is flush with x and y axis
-    # Remove quantification 
-    i <- 1
     tClin <- clin[,c(features[[i]], "UV_sig_value")] 
     tClin$index <- 1:nrow(tClin)
+    
+    if (colnames(tClin)[1] == "Age_Group") {
+      tPal <- sequential_hcl(4, palette="Viridis")
+    } else if (colnames(tClin)[1] != "UV_sig") {
+      tPal <- sequential_hcl(length(unique(tClin[,1])), palette=sample(rownames(cols),1, replace = F))
+    } else {
+      tPal <- c("#FF0000", "#4F53B7", "#FFA500")
+    }
+    
     featureGraph <- ggplot(tClin, aes(x = index)) +
       geom_bar(aes(fill = tClin[,1])) +
-      labs(fill = colnames(tClin)[1], x = "Signature 7 (decreasing)") +
+      labs(fill = colnames(tClin)[1], x = "Signature 7 (decreasing)", y = NULL) +
+      scale_x_discrete(expand = c(0, 0)) +
+      scale_y_discrete(expand = c(0, 0)) +
+      scale_fill_manual(values = tPal) +
+      theme(legend.position = "bottom") +
       theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
             panel.background = element_blank(), axis.line = element_line(colour = "black"), legend.text=element_text(size = 8),
-            axis.text.y = element_blank(), axis.ticks.y = element_blank(), axis.ticks.x = element_blank())
+            axis.ticks.y = element_blank(), axis.ticks.x = element_blank())
     featureGraph
+    ggsave(paste0(colnames(tClin)[1], ".pdf"), width = 8, height = 1, units = "in")
   }
   print("Feature graphs generated successfully!")
 }
 
-plotGenes <- function(clin, mutations) {
-  # move in control gene functions
+plotControls <- function(clin, mutations) {
+  mutFilter <- mutations[mutations$Tumor_Sample_Barcode %in% clin$Tumor_Sample_Barcode, ]
+  mutFilter <- mutFilter[mutFilter$Hugo_Symbol %in% melControl, ]
+  mutFilter <- mutFilter[mutFilter$Variant_Classification != "Silent", ]
+  
+  for (i in 1:length(melControl)) {
+    gene <- melControl[i]
+    geneMut <- mutFilter[mutFilter$Hugo_Symbol == gene, ]
+    mutated <- unique(mutFilter$Tumor_Sample_Barcode[mutFilter$Hugo_Symbol == gene])
+    if (gene == "BRAF") {
+      brafV <- unique(geneMut$Tumor_Sample_Barcode[geneMut$HGVSp_Short == "p.V600E"])
+    }
+    
+    tempClin <- clin[, c("Tumor_Sample_Barcode", "UV_sig")]
+    tempClin$Status <- "WT"
+    tempClin$Status[tempClin$Tumor_Sample_Barcode %in% mutated] <- "Mut"
+    if (gene == "BRAF") {
+      tempClin$Status[tempClin$Status == "Mut"] <- "Other Mut"
+      tempClin$Status[tempClin$Tumor_Sample_Barcode %in% brafV] <- "V600E"
+    }
+    
+    mutTable <- as.data.frame(prop.table(table(tempClin$UV_sig, tempClin$Status), margin = 1))
+    # STOPPED HERE, TO DO:
+    # Format mutTable for plotting, with conditional settings for BRAF
+    # plotSurvival graphs
+    # Put everything together in a sort of "do all" function
+    # Run processData and clinicalLandscape on all cohorts to ensure proper function
+    # Write permutation test code in python for multi threading
+    # Create Fig 2 based R script, should be pretty fast (maftools plots and top gene graphs)
+    plot3 <- ggplot(dat2, aes(x=uv_level, y=pct_of_level, fill=gene_status)) +
+      geom_col(position="stack", color="black") +
+      scale_fill_manual(values=c("#737D7B", "#B1B5B6", "#EFEDF1")) +
+      scale_x_discrete(expand = c(0.005, 0)) +
+      scale_y_continuous(expand = c(0, 0)) +
+      theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+            panel.background = element_blank(), axis.line = element_line(colour = "black"))
+    plot3
+    ggsave(paste0(name,"_Bar_mutLevel.pdf"), width = 6, height = 3, units = "in")
+  }
+}
+
+plotSurvival <- function(clin) {
+  
 }
 
 ## Execute code -------------------
