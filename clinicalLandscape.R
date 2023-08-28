@@ -3,6 +3,8 @@ library(colorspace)
 library(reshape2)
 library(dplyr)
 library(data.table)
+library(survival)
+library(survminer)
 source("C:/Users/robmc/Desktop/NUMB/repairGenes.R") 
 '%notin%' <- Negate('%in%')
 homeDir <- "C:/Users/robmc/Desktop/NUMB_files"
@@ -49,7 +51,7 @@ plotSigs <- function(sigs, clin) {
           panel.background = element_blank(), axis.line = element_line(colour = "black")) +
     guides(fill=guide_legend(nrow=4,byrow=TRUE))
   print(cosmicPlot)
-  ggsave(paste0(dataDir,"_COSMICsigs.pdf"), width = 8, height = 8, units = "in")
+  ggsave("COSMICsigs.pdf", width = 8, height = 8, units = "in")
   
   clin$UV_sig <- factor(clin$UV_sig, levels = unique(clin$UV_sig))
   UVbyLplot <- ggplot(clin, aes(x=UV_sig, y=UV_sig_value, fill=UV_sig)) +
@@ -59,7 +61,7 @@ plotSigs <- function(sigs, clin) {
     theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
           panel.background = element_blank(), axis.line = element_line(colour = "black"))
   print(UVbyLplot)
-  ggsave(paste0(dataDir,"_AvgUVsigByLevel.pdf"))
+  ggsave("Avg_Sig7_By_Level.pdf")
   
   print("Signature graphs generated successfully!")
 }
@@ -95,7 +97,7 @@ plotTNM <- function(clin, tnm) {
     theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
           panel.background = element_blank(), axis.line = element_line(colour = "black"), legend.text=element_text(size = 8))
   print(tnmPlot)
-  ggsave(paste0(dataDir,"_TNM.pdf"), width = 8, height = 8, units = "in")
+  ggsave("TNM.pdf", width = 8, height = 8, units = "in")
   
   CTpct <- temp %>% mutate(CT.Dipyr.pct = .[,7]/rowSums(select(., -c(1,9,10))))
   CTpct$UV_sig <- factor(CTpct$UV_sig, levels=unique(CTpct$UV_sig))
@@ -106,7 +108,7 @@ plotTNM <- function(clin, tnm) {
     theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
           panel.background = element_blank(), axis.line = element_line(colour = "black"))
   print(CTbreakdownPlot)
-  ggsave(paste0(dataDir,"_CTdipyrPctByLevel.pdf"))
+  ggsave("Dipyr_Pct_By_Level.pdf")
   
   print("TNM graphs generated successfully!")
 }
@@ -129,7 +131,7 @@ plotSNVs <- function(clin, mutations) {
     theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
           panel.background = element_blank(), axis.line = element_line(colour = "black"))
   print(AvgSNVplot)
-  ggsave(paste0(dataDir,"_AverageSNVbyLevel.pdf"))
+  ggsave("Average_SNV_By_Level.pdf")
   
   # Individual SNV plot
   tempClin$Tumor_Sample_Barcode <- factor(tempClin$Tumor_Sample_Barcode, levels = unique(tempClin$Tumor_Sample_Barcode))
@@ -145,7 +147,7 @@ plotSNVs <- function(clin, mutations) {
     theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
           panel.background = element_blank(), axis.line = element_line(colour = "black"), legend.text=element_text(size = 8))
   print(sampleSNVplot)
-  ggsave(paste0(dataDir,"_AverageSNVperSample.pdf"), width = 7, height = 2, units = "in")
+  ggsave("Average_SNV_Per_Sample.pdf", width = 7, height = 2, units = "in")
   
   tempClin$index <- seq.int(nrow(tempClin)) 
   tempClin$TMBlog10 <- log10(tempClin$TMB_NONSYNONYMOUS)
@@ -199,12 +201,13 @@ plotFeatures <- function(clin) {
   # Stage plot (SKCM specific, needs to be formatted for different stage naming conventions to be applicable to other cohorts)
   if ("AJCC_PATHOLOGIC_TUMOR_STAGE" %in% colnames(clin)) {
     clin$AJCC_PATHOLOGIC_TUMOR_STAGE <- gsub('[ABC]', '', clin$AJCC_PATHOLOGIC_TUMOR_STAGE)
-    clin$AJCC_PATHOLOGIC_TUMOR_STAGE[clin$AJCC_PATHOLOGIC_TUMOR_STAGE == "Stage III" |
-                                     clin$AJCC_PATHOLOGIC_TUMOR_STAGE == "Stage IV"] <- "High Stage"
-    clin$AJCC_PATHOLOGIC_TUMOR_STAGE[is.na(clin$AJCC_PATHOLOGIC_TUMOR_STAGE) == F & 
-                                     clin$AJCC_PATHOLOGIC_TUMOR_STAGE != "High Stage"] <- "Low Stage"
+    clin$Tumor_Stage <- clin$AJCC_PATHOLOGIC_TUMOR_STAGE
+    clin$Tumor_Stage[clin$Tumor_Stage == "Stage III" |
+                                     clin$Tumor_Stage == "Stage IV"] <- "High Stage"
+    clin$Tumor_Stage[is.na(clin$Tumor_Stage) == F & 
+                                     clin$Tumor_Stage != "High Stage"] <- "Low Stage"
     
-    stageDat <- table(clin$AJCC_PATHOLOGIC_TUMOR_STAGE, clin$UV_sig)
+    stageDat <- table(clin$Tumor_Stage, clin$UV_sig)
     stageTable <- stageDat[,-3]
     stage <- as.data.frame(prop.table(stageTable, margin = 2))
     stagePlot <- ggplot(stage, aes(x = Var2, y = Freq)) + 
@@ -240,9 +243,13 @@ plotFeatures <- function(clin) {
   for (i in 1:length(features)) {
     tClin <- clin[,c(features[[i]], "UV_sig_value")] 
     tClin$index <- 1:nrow(tClin)
+    if (ceiling(length(unique(tClin[,1]))/4) > 1) {
+      hVal <- 1.2+ceiling(length(unique(tClin[,1]))/4)*.1
+    } else { hVal <- 1.2 }
     
     if (colnames(tClin)[1] == "Age_Group") {
       tPal <- sequential_hcl(4, palette="Viridis")
+      hVal <- 1.2
     } else if (colnames(tClin)[1] != "UV_sig") {
       tPal <- sequential_hcl(length(unique(tClin[,1])), palette=sample(rownames(cols),1, replace = F))
     } else {
@@ -260,7 +267,7 @@ plotFeatures <- function(clin) {
             panel.background = element_blank(), axis.line = element_line(colour = "black"), legend.text=element_text(size = 8),
             axis.ticks.y = element_blank(), axis.ticks.x = element_blank())
     featureGraph
-    ggsave(paste0(colnames(tClin)[1], ".pdf"), width = 8, height = 1, units = "in")
+    ggsave(paste0(colnames(tClin)[1], ".pdf"), width = 8, height = hVal, units = "in")
   }
   print("Feature graphs generated successfully!")
 }
@@ -284,47 +291,70 @@ plotControls <- function(clin, mutations) {
     if (gene == "BRAF") {
       tempClin$Status[tempClin$Status == "Mut"] <- "Other Mut"
       tempClin$Status[tempClin$Tumor_Sample_Barcode %in% brafV] <- "V600E"
+      pal <- c("#228B22", "#960019", "#777B7E")
+    } else {
+      pal <- c("#228B22", "#960019")
     }
     
     mutTable <- as.data.frame(prop.table(table(tempClin$UV_sig, tempClin$Status), margin = 1))
-    # STOPPED HERE, TO DO:
-    # Format mutTable for plotting, with conditional settings for BRAF
-    # plotSurvival graphs
-    # Put everything together in a sort of "do all" function
-    # Run processData and clinicalLandscape on all cohorts to ensure proper function
-    # Write permutation test code in python for multi threading
-    # Create Fig 2 based R script, should be pretty fast (maftools plots and top gene graphs)
-    plot3 <- ggplot(dat2, aes(x=uv_level, y=pct_of_level, fill=gene_status)) +
-      geom_col(position="stack", color="black") +
-      scale_fill_manual(values=c("#737D7B", "#B1B5B6", "#EFEDF1")) +
+    mutTable$Var1 <- factor(mutTable$Var1, levels = c("High", "Moderate", "Low"))
+    if (gene == "BRAF") {
+      mutTable$Var2 <- factor(mutTable$Var2, levels = c("WT", "V600E", "Other Mut"))
+    } else {
+      mutTable$Var2 <- factor(mutTable$Var2, levels = c("WT", "Mut"))
+    }
+    
+    genePlot <- ggplot(mutTable, aes(x=Var1, y=Freq, fill=Var2)) +
+      geom_col(position="dodge", color="black") +
+      scale_fill_manual(values=pal) +
       scale_x_discrete(expand = c(0.005, 0)) +
       scale_y_continuous(expand = c(0, 0)) +
       theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
             panel.background = element_blank(), axis.line = element_line(colour = "black"))
-    plot3
-    ggsave(paste0(name,"_Bar_mutLevel.pdf"), width = 6, height = 3, units = "in")
+    genePlot
+    ggsave(paste0(gene,".pdf"), width = 6, height = 3, units = "in")
   }
+  print("Control gene graphs generated successfully!")
+  return(clin)
 }
 
 plotSurvival <- function(clin) {
+  clin$OS_MONTHS <- as.numeric(clin$OS_MONTHS)
+  clin$OS_STATUS <- as.numeric(substr(clin$OS_STATUS, 1, 1))
   
+  ggsurvplot(fit = surv_fit(Surv(OS_MONTHS, OS_STATUS) ~ UV_sig, data = clin),
+             xlab = "Months",
+             ylab = "Overall survival probability",
+             pval = T,
+             palette = c("#FF0000", "#4F53B7", "#FFA500"))
+  ggsave("Survival.pdf")
+  
+  print("Survival graph generated successfully!")
+}
+
+generatePlots <- function(dataDir) {
+  setwd(paste0(homeDir, "/data/", dataDir))
+  clin <- read.csv("clinical.csv")
+  clin <- clin[order(-clin$UV_sig_value),]
+  sigs <- read.csv("mutationalSignatures.csv", row.names = "SAMPLE_ID")
+  tnm <- read.csv("tnm.csv")
+  if (!file.exists("data_mutations.txt")) { mutations <- fread("data_mutations_extended.txt") 
+  } else { mutations <- fread("data_mutations.txt") }
+  mutations$Hugo_Symbol[mutations$Hugo_Symbol == "CUL4A" | mutations$Hugo_Symbol == "CUL4B"] <- "CUL4A/B" 
+  
+  resultsDir <- paste0(homeDir,"/results/",dataDir,"/")
+  if (!dir.exists(resultsDir)) {  dir.create(resultsDir)  }
+  setwd(resultsDir)
+  
+  plotSigs(sigs, clin)
+  plotTNM(clin, tnm)
+  plotSNVs(clin, mutations)
+  plotFeatures(clin)
+  plotControls(clin, mutations)
+  plotSurvival(clin)
+  
+  print("All plots generated successfully!")
 }
 
 ## Execute code -------------------
-dataDir <- "skcm_tcga"
-setwd(paste0(homeDir, "/data/", dataDir))
-
-clin <- read.csv("clinical.csv")
-clin <- clin[order(-clin$UV_sig_value),]
-sigs <- read.csv("mutationalSignatures.csv", row.names = "SAMPLE_ID")
-tnm <- read.csv("tnm.csv")
-if (!file.exists("data_mutations.txt")) { mutations <- fread("data_mutations_extended.txt") 
-} else { mutations <- fread("data_mutations.txt")}
-mutations$Hugo_Symbol[mutations$Hugo_Symbol == "CUL4A" | mutations$Hugo_Symbol == "CUL4B"] <- "CUL4A/B" 
-
-resultsDir <- paste0(homeDir,"/results/",dataDir,"/")
-if (!dir.exists(resultsDir)) {  dir.create(resultsDir)  }
-setwd(resultsDir)
-
-plotSigs(sigs)
-plotTNM(clin, tnm)
+generatePlots("skcm_tcga")
