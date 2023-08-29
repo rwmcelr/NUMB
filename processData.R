@@ -74,11 +74,10 @@ processData <- function(directory) {
   # Create tumor_sample_barcode column which is necessary for some maftools package functions
   clinFinal$Tumor_Sample_Barcode <- clinFinal$SAMPLE_ID
   
-  mutations$Hugo_Symbol[mutations$Hugo_Symbol == "CUL4A" | mutations$Hugo_Symbol == "CUL4B"] <- "CUL4A/B"  # Combine CUL4A and CUL4B for downstream analysis
-  mutations <- mutations[mutations$Hugo_Symbol %in% NERgenes, ] # Isolate NER mutations
-  mutations <- mutations[mutations$Variant_Classification != "Silent", ] # Filter out silent mutations
+  mutations$Hugo_Symbol[mutations$Hugo_Symbol == "CUL4A" | mutations$Hugo_Symbol == "CUL4B"] <- "CUL4A/B"
+  mutations <- mutations[mutations$Hugo_Symbol %in% NERgenes, ]
+  mutations <- mutations[mutations$Variant_Classification != "Silent", ]
   
-  # Parse through each sample with available UV signature data, and note mutation status of each NER gene (0 = WT, 1 = Mut)
   clinMut <- as.data.frame(clinFinal$Tumor_Sample_Barcode)
   colnames(clinMut)[1] <- "Tumor_Sample_Barcode"
   for (i in NERgenes) {
@@ -88,15 +87,13 @@ processData <- function(directory) {
   }
   write.csv(clinMut, "NER_mutSig.csv", row.names = F)
   
-  # Reformat CNV data to be more usable (remove duplicated gene entries, reshape data frame to match mutation format)
   cnv <- fread("data_cna.txt")
   cnv <- unique(cnv[!duplicated(cnv$Hugo_Symbol), ])
   cnv2 <- reshape2::melt(cnv, id.vars = "Hugo_Symbol")
   colnames(cnv2) <- c("Gene", "Sample_name", "CN")
   cnv2 <- cnv2[cnv2$Sample_name %in% clinFinal$Tumor_Sample_Barcode, ]
-  cnv2$Gene[cnv2$Gene == "CUL4A" | cnv2$Gene == "CUL4B"] <- "CUL4A/B" # Match earlier CUL4A/CUL4B formatting
+  cnv2$Gene[cnv2$Gene == "CUL4A" | cnv2$Gene == "CUL4B"] <- "CUL4A/B"
   
-  # Parse through each sample with available CNV data, and denote CNV status of each NER gene (-2,-1 = Del, 0 = WT, 1,2 = Amp)
   clinCNV <- as.data.frame(clinFinal$Tumor_Sample_Barcode[clinFinal$Tumor_Sample_Barcode %in% cnv2$Sample_name])
   colnames(clinCNV)[1] <- "Tumor_Sample_Barcode"
   for (i in NERgenes) {
@@ -106,33 +103,26 @@ processData <- function(directory) {
   }
   write.csv(clinCNV, "NER_cnvSig.csv", row.names = F)
   
-  # Creating temporary frames of mut and CNV data for merging
   m <- data.frame(clinMut, row.names = 1)
-  m <- m*0.1 # Setting mutation values to decimals to delineate between mut and CNV values
+  m <- m*0.1
   c <- data.frame(clinCNV, row.names = 1)
   
-  # Summing all mut and CNV values together to combine effects
   both <- bind_rows(c %>% tibble::rownames_to_column(), 
                     m %>% tibble::rownames_to_column()) %>% 
-    # evaluate following calls for each value in the rowname column
     group_by(rowname) %>% 
-    # add all non-grouping variables
     summarise_all(sum)
   
-  # Change combined mutation+cnv dataframe to binary values (0 = Not affected, 1 = affected)
-  both[both == 0 | both == 1 | both == 2] <- 0 # If WT | amp : not affected
-  both[both == -0.9 | both == -1.9] <- 1 # If mutated + deleted : affected
-  both[both == 0.1] <- 1 # If only mutated : affected
-  both[both == -1 | both == -2] <- 1 # If only deleted : affected 
-  both[both == 1.1 | both == 2.1] <- 1 # If mutated + amp : affected (mutations are non-silent)
+  both[both == 0 | both == 1 | both == 2] <- 0
+  both[both == -0.9 | both == -1.9] <- 1
+  both[both == 0.1] <- 1
+  both[both == -1 | both == -2] <- 1
+  both[both == 1.1 | both == 2.1] <- 1
   
-  # Pull out genes used for NER signature, as of 7/13/2023 these genes may still change
   nerSig <- both[ , colnames(both) %in% c("CETN2", "GTF2H2", "ERCC8", "CDK7", "CCNH", "ERCC6", "RAD23B")]
-  nerSig$NER_sig <- with(nerSig, rowSums(nerSig)) # Generate total NER signature 
+  nerSig$NER_sig <- with(nerSig, rowSums(nerSig))
   nerSig$Tumor_Sample_Barcode <- both$rowname
   keep <- nerSig[,c("Tumor_Sample_Barcode", "NER_sig")]
   
-  # Append NER signature to clinical information, write finalized clinical file to csv
   allDat <- merge(clinFinal, keep, by = "Tumor_Sample_Barcode")
   allDat <- allDat[order(-allDat$UV_sig_value),]
   write.csv(allDat, "clinical.csv", row.names = F)

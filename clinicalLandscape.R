@@ -1,3 +1,4 @@
+## Library calls, load gene lists and cosmic signatures ##----------------------
 library(ggplot2)
 library(colorspace)
 library(reshape2)
@@ -8,6 +9,7 @@ library(survminer)
 source("C:/Users/robmc/Desktop/NUMB/repairGenes.R") 
 '%notin%' <- Negate('%in%')
 homeDir <- "C:/Users/robmc/Desktop/NUMB_files"
+
 ## Function area  --------------------------------------------------------
 plotSigs <- function(sigs, clin) {
   sig <- sigs[,-c(7:10, 69)] # Remove UV signature for now, will be re-added later
