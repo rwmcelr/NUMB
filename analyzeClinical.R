@@ -334,7 +334,40 @@ plotSurvival <- function(clin) {
   print("Survival graph generated successfully!")
 }
 
-generatePlots <- function(dataDir) {
+plot10gene <- function(clin, mutations) {
+  tenGene <- c("LRP1B", "GPR98", "XIRP2", "PKHD1L1", "USH2A", "DNAH9", "PCDH15", "DNAH10", "TP53", "PCDHAC1")
+  initial <- mutations[mutations$Hugo_Symbol %in% tenGene, ]
+  dat <- initial[ , c("Hugo_Symbol", "Variant_Classification", "Tumor_Sample_Barcode")]
+  dat$Variant_Classification[dat$Variant_Classification != "Silent"] <- 1
+  dat$Variant_Classification[dat$Variant_Classification == "Silent"] <- 0
+  dat2 <- as.data.frame(reshape(dat, idvar = "Tumor_Sample_Barcode", timevar = "Hugo_Symbol", direction = "wide"))
+  dat2[is.na(dat2)] <- 0
+  dat2[,2:11] <- as.numeric(unlist(dat2[,2:11]))
+  final <- data.frame(Tumor_Sample_Barcode = dat2$Tumor_Sample_Barcode, Sig = apply(dat2[,2:11], 1, sum))
+  
+  t <- merge(clin, final, all.x = T)
+  t$Sig[is.na(t$Sig)] <- 0
+  t$Sig <- t$Sig / 10
+  
+  plotDat <- t[, c("UV_sig", "UV_sig_value", "Sig")]
+  plotDat <- plotDat[order(-plotDat$UV_sig_value),]
+  plotDat$UV_sig <- factor(plotDat$UV_sig, levels = unique(plotDat$UV_sig))
+
+  corr <- cor.test(x=plotDat$UV_sig_value, y=plotDat$Sig, method = 'spearman')
+  tenGenePlot <- ggplot(plotDat, aes(x=-UV_sig_value, y=Sig)) +
+    geom_point(aes(color=UV_sig)) +
+    annotate("text", x=-0.2, y=0.3, label= paste0("Spearman p-value: ",round(corr$p.value, digits = 4))) +
+    annotate("text", x=-0.2, y=0.25, label= paste0("Spearman rho: ",round(corr$estimate, digits = 4))) +
+    scale_x_reverse(expand = c(0.003,0)) +
+    scale_y_discrete(expand = c(0, 0.003)) +
+    scale_color_manual(values=c("#FF0000", "#FFA500", "#4F53B7")) +
+    theme_classic() +
+    theme(legend.position = "none")
+  print(tenGenePlot)
+  ggsave("10_Gene_Plot.pdf", height = 3, width = 6, units = "in")
+}
+
+generatePlots <- function(dataDir, subDir = "") {
   setwd(paste0(homeDir, "/data/", dataDir))
   clin <- read.csv("clinical.csv")
   clin <- clin[order(-clin$UV_sig_value),]
@@ -344,9 +377,15 @@ generatePlots <- function(dataDir) {
   } else { mutations <- fread("data_mutations.txt") }
   mutations$Hugo_Symbol[mutations$Hugo_Symbol == "CUL4A" | mutations$Hugo_Symbol == "CUL4B"] <- "CUL4A/B" 
   
-  resultsDir <- paste0(homeDir,"/results/",dataDir,"/")
-  if (!dir.exists(resultsDir)) {  dir.create(resultsDir)  }
-  setwd(resultsDir)
+  if (subDir != "") {
+    resultsDir <- paste0(homeDir,"/results/",dataDir,"/",subDir,"/")
+    if (!dir.exists(resultsDir)) {  dir.create(resultsDir)  }
+    setwd(resultsDir)
+  } else {
+    resultsDir <- paste0(homeDir,"/results/",dataDir,"/")
+    if (!dir.exists(resultsDir)) {  dir.create(resultsDir)  }
+    setwd(resultsDir)
+  }
   
   plotSigs(sigs, clin)
   plotTNM(clin, tnm)
@@ -354,6 +393,7 @@ generatePlots <- function(dataDir) {
   plotFeatures(clin)
   plotControls(clin, mutations)
   plotSurvival(clin)
+  plot10gene(clin, mutations)
   
   print("All plots generated successfully!")
 }

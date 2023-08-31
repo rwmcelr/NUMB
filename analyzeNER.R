@@ -5,6 +5,8 @@ library(data.table)
 library(maftools)
 library(reshape2)
 library(dplyr)
+library(survival)
+library(survminer)
 source("C:/Users/robmc/Desktop/NUMB/repairGenes.R") 
 '%notin%' <- Negate('%in%')
 homeDir <- "C:/Users/robmc/Desktop/NUMB_files"
@@ -102,7 +104,26 @@ analyzeNER <- function(clin, mutSig, cnvSig) {
   ggsave("NER_gene_pcts.pdf", width = 8, height = 4, units = "in")
 }
 
-nerAnalysis <- function(dataDir) {
+nerSurvival <- function(clin) {
+  surv <- clin
+  surv <- surv[surv$UV_sig != "Moderate", ]
+  surv$Combination[surv$UV_sig == "High" & surv$NER_sig == 0] <- "UV High, NER Proficient"
+  surv$Combination[surv$UV_sig == "High" & surv$NER_sig > 0] <- "UV High, NER Deficient"
+  surv$Combination[surv$UV_sig == "Low" & surv$NER_sig == 0] <- "UV Low, NER Proficient"
+  surv$Combination[surv$UV_sig == "Low" & surv$NER_sig > 0] <- "UV Low, NER Deficient"
+  surv$OS_MONTHS <- as.numeric(surv$OS_MONTHS)
+  surv$OS_STATUS <- as.numeric(substr(surv$OS_STATUS, 1, 1))
+  
+  survival <- ggsurvplot(fit = surv_fit(Surv(OS_MONTHS, OS_STATUS) ~ Combination, data = surv),
+             xlab = "Months",
+             ylab = "Overall survival probability",
+             pval = T,
+             legend = "bottom")
+  ggpar(survival, font.legend = list(size = 7))
+  ggsave("Survival_NER.pdf", width = 8.62, height = 5.47, units = "in")
+}
+
+nerAnalysis <- function(dataDir, subDir) {
   setwd(paste0(homeDir, "/data/", dataDir))
   
   clin <- read.csv("clinical.csv")
@@ -127,12 +148,19 @@ nerAnalysis <- function(dataDir) {
   cnv2 <- cnv2[cnv2$CN != 1, ]
   cnv2 <- cnv2[cnv2$Sample_name %in% clin$Tumor_Sample_Barcode, ]
   
-  resultsDir <- paste0(homeDir,"/results/",dataDir,"/")
-  if (!dir.exists(resultsDir)) {  dir.create(resultsDir)  }
-  setwd(resultsDir)
+  if (subDir != "") {
+    resultsDir <- paste0(homeDir,"/results/",dataDir,"/",subDir,"/")
+    if (!dir.exists(resultsDir)) {  dir.create(resultsDir)  }
+    setwd(resultsDir)
+  } else {
+    resultsDir <- paste0(homeDir,"/results/",dataDir,"/")
+    if (!dir.exists(resultsDir)) {  dir.create(resultsDir)  }
+    setwd(resultsDir)
+  }
   
   generateOncoplot(mutations, clin, cnv2)
   analyzeNER(clin, mutSig, cnvSig)
+  nerSurvival(clin)
 }
 ## Execute code -------------------
 nerAnalysis("skcm_tcga")

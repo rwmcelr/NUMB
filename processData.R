@@ -3,56 +3,49 @@ library(BSgenome.Hsapiens.UCSC.hg19)
 library(deconstructSigs)
 library(data.table)
 library(dplyr)
-source("C:/Users/robmc/Desktop/NUMB/repairGenes.R") # Load repair genes as list objects
-load("C:/Users/robmc/Desktop/NUMB_files/data/signatures.genome.cosmic.v3.may2019.rda") # Load Cosmic Signature file
+source("C:/Users/robmc/Desktop/NUMB/repairGenes.R")
+load("C:/Users/robmc/Desktop/NUMB_files/data/signatures.genome.cosmic.v3.may2019.rda")
 '%notin%' <- Negate('%in%')
-homeDir <- "C:/Users/robmc/Desktop/NUMB_files" # Create root data directory pointer
+homeDir <- "C:/Users/robmc/Desktop/NUMB_files"
 
 ## processData function ##----------------------
-processData <- function(directory) {
+processData <- function(directory, filter = F, minMut = 30) {
   setwd(paste0(homeDir, "/data/", directory))
-  setwd(paste0(homeDir,"/data/skcm_tcga"))
-  filter <- read.csv("filter.csv")
   
-  # Create initial clinical file by merging patient and sample data
   sample <- fread("data_clinical_sample.txt", skip=4)
   patient <- fread("data_clinical_patient.txt", skip=4)
   clin <- merge(sample, patient, by = "PATIENT_ID")
-  # Remove clinical features which only contain NA values
   clin[clin == "[Not Available]"] <- NA
   clin <- Filter(function(x)!all(is.na(x)), clin)
-  clin <- clin[clin$SAMPLE_ID %in% filter$SAMPLE_ID]
   
-  # Read in mutation data, accounting for both formats in cBioPortal
+  # filter format should be csv of sample names, with header as first line
+  if (filter == T) {
+    f <- read.csv("filter.csv")
+    clin <- clin[clin$SAMPLE_ID %in% f[,1]]
+  }
+  
   if (!file.exists("data_mutations.txt")) { mutations <- fread("data_mutations_extended.txt") 
   } else { mutations <- fread("data_mutations.txt")}
-  # Make sure all samples with mutations to be analyzed have associated clinical annotations
   mutations <- mutations[mutations$Tumor_Sample_Barcode %in% clin$SAMPLE_ID, ]
   
   # Format chromosome column to match BSgenome format
   mutations$Chromosome <- sub("^", "chr", mutations$Chromosome)
-  # Prepare input object for deconstructSigs package
   sigs <- mut.to.sigs.input(mut.ref = mutations, sample.id = "Tumor_Sample_Barcode", chr = "Chromosome",
                             pos = "Start_Position", ref = "Reference_Allele", 
                             alt = "Tumor_Seq_Allele2", bsg = BSgenome.Hsapiens.UCSC.hg19)
-  # Filter out samples with low mutation count as suggested by deconstructSigs package
-  # This number can be changed, but further reading should be done to choose mutation cutoff
-  finalMut <- sigs[rowSums(sigs)>50,]
-  write.csv(finalMut, "tnm.csv") # Generate TNM table for later plotting
+  finalMut <- sigs[rowSums(sigs)>minMut,]
+  write.csv(finalMut, "tnm.csv")
   results <- vector("list", nrow(finalMut))
   names(results) <- row.names(finalMut)
   
-  # Construct mutational profile for each tumor sample from already defined signatures (COSMIC in this case)
   for(sID in row.names(finalMut)){
-    results[[sID]] <- whichSignatures(finalMut, # the matrix generated with mut.to.sigs.input
-                                      sample.id=sID, # the current sample ID
-                                      signatures.ref=signatures.genome.cosmic.v3.may2019, # the data.frame with the signatures that comes with deconstructSigs
-                                      tri.counts.method="default", # which normalization method to use
-                                      contexts.needed=TRUE) # set to TRUE if your input matrix contains counts instead of frequencies
+    results[[sID]] <- whichSignatures(finalMut,
+                                      sample.id=sID,
+                                      signatures.ref=signatures.genome.cosmic.v3.may2019,
+                                      tri.counts.method="default",
+                                      contexts.needed=TRUE)
   }
-  # convert the exposures for each sample into a sample x signatures matrix
   expo <- do.call("rbind", sapply(results, "[", 1))
-  # add the unknown value to the matrix such that the contributions add up to 1 per sample
   Signature.unknown <- unlist(sapply(results, "[", 5))
   expo <- cbind(expo, Signature.unknown)
   # Create combined UV exposure signature column
@@ -60,10 +53,8 @@ processData <- function(directory) {
   expo$SAMPLE_ID <- rownames(expo)
   expo <- expo[order(-expo$UV_sig),]
   expo$SAMPLE_ID <- gsub(".weights","",expo$SAMPLE_ID)
-  # Output imputed signatures with COSMIC signature names for downstream analysis / plot generation
   write.csv(expo, "mutationalSignatures.csv", row.names = F)
   
-  # Create new UV signature annotation column based on % of mutational signature contribution by UV exposure
   clinFinal <- clin[which(clin$SAMPLE_ID %in% expo$SAMPLE_ID), ]
   expo <- expo[order(expo$SAMPLE_ID),]
   clinFinal$UV_sig_value <- expo$UV_sig
@@ -71,7 +62,6 @@ processData <- function(directory) {
   clinFinal$UV_sig[clinFinal$UV_sig_value < 0.65 &
                      clinFinal$UV_sig_value > 0.2] <- "Moderate"
   clinFinal$UV_sig[clinFinal$UV_sig_value <= 0.2] <- "Low"
-  # Create tumor_sample_barcode column which is necessary for some maftools package functions
   clinFinal$Tumor_Sample_Barcode <- clinFinal$SAMPLE_ID
   
   mutations$Hugo_Symbol[mutations$Hugo_Symbol == "CUL4A" | mutations$Hugo_Symbol == "CUL4B"] <- "CUL4A/B"
@@ -127,3 +117,6 @@ processData <- function(directory) {
   allDat <- allDat[order(-allDat$UV_sig_value),]
   write.csv(allDat, "clinical.csv", row.names = F)
 }
+
+## Execute code -------------------
+processData("skcm_tcga", filter = T)
