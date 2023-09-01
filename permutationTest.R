@@ -1,63 +1,39 @@
 ### Library calls/ scripts -------------------------------------
-library(maftools)
 library(ggplot2)
+library(ggrepel)
 library(colorspace)
 library(data.table)
 library(reshape2)
 library(dplyr)
-source("C:/Users/robmc/Desktop/NER/R/oncoPlease.R")
-sourceDir <- "C:/Users/robmc/Desktop/NER"
-skcmDir <- "C:/Users/robmc/Desktop/NER/data/skcm_perm/"
-dfci19Dir <- "C:/Users/robmc/Desktop/NER/data/mel_dfci_2019/"
-uclaDir <- "C:/Users/robmc/Desktop/NER/data/mel_ucla_2016/"
+library(qvalue)
+homeDir<- "C:/Users/robmc/Desktop/NUMB_files"
 '%notin%' <- Negate('%in%')
 
-### Data Preparation -------------------------------------
+### Functions -------------------------------------
 dataPrep <- function(dataDir) {
-  setwd(dataDir)
-  if(file.exists("scores.gistic")) {
-    gisticLesions <- "all_lesions.conf_99.txt"
-    gisticScores <- "scores.gistic"
-    gisticAmp <- "amp_genes.conf_99.txt"
-    gisticDel <- "del_genes.conf_99.txt"
-    
-    cnv <- readGistic(
-      gisticAllLesionsFile = gisticLesions,
-      #gisticAmpGenesFile = gisticAmp,
-      gisticDelGenesFile = gisticDel,
-      gisticScoresFile = gisticScores,
-      cnLevel = "all",
-      isTCGA = T,
-      verbose = TRUE
-    )
-    summary <- cnv@data
-    write.table(summary, "cnvSum.txt", row.names = F)
-    cnvLong <- fread("cnvSum.txt")
-    cnvWide <- dcast(data = cnvLong,formula = Tumor_Sample_Barcode~Hugo_Symbol, fun.aggregate = NULL,
-                     value.var = "Variant_Classification")
-  } else {
-    cnv <- fread("data_cna.txt")
-    cnv[cnv == 1 | cnv == 2] <- 0
-    cnv[cnv == -1 | cnv == -2] <- 1
-    cnv <- melt(cnv)
-    cnvWide <- dcast(data = cnv,formula = variable~Hugo_Symbol, fun.aggregate = mean, value.var = "value")
-    colnames(cnvWide)[1] <- "Tumor_Sample_Barcode"
-  }
+  dataDir <- "skcm_tcga"
+  setwd(paste0(homeDir, "/data/", dataDir))
+  
+  cnv <- fread("data_cna.txt")
+  cnv[cnv == 1 | cnv == 2] <- 0
+  cnv[cnv == -1 | cnv == -2] <- 1
+  cnv <- melt(cnv)
+  cnvWide <- dcast(data = cnv,formula = variable~Hugo_Symbol, fun.aggregate = mean, value.var = "value")
+  colnames(cnvWide)[1] <- "Tumor_Sample_Barcode"
   
   if(file.exists("data_mutations.txt")) { mutations <- fread("data_mutations.txt") } else {
     mutations <- fread("data_mutations_extended.txt")
   }
   
-  mutationsFiltered <- mutations[mutations$Variant_Classification != "Silent", ]
-  mut <- distinct(mutationsFiltered, End_Position, Tumor_Sample_Barcode, Reference_Allele, Tumor_Seq_Allele2, .keep_all = T)
-  mutationsWide <- dcast(data = mut,formula = Tumor_Sample_Barcode~Hugo_Symbol, fun.aggregate = length,
-                         value.var = "Variant_Classification")
+  mutations <- mutations[mutations$Variant_Classification != "Silent", ]
+  mut <- distinct(mutations, End_Position, Tumor_Sample_Barcode, Reference_Allele, Tumor_Seq_Allele2, .keep_all = T)
+  mutWide <- dcast(data = mut,formula = Tumor_Sample_Barcode~Hugo_Symbol, fun.aggregate = length,
+                   value.var = "Variant_Classification")
   
   # Keep only mutation and CNV data for which UV-signature and clinical data exist
-  clin <- fread("updatedClinical.csv")
+  clin <- fread("clinical.csv")
   cnvFinal <- cnvWide[cnvWide$Tumor_Sample_Barcode %in% clin$Tumor_Sample_Barcode, ]
-  mutationsWide$Tumor_Sample_Barcode <- substr(mutationsWide$Tumor_Sample_Barcode, 1, 12)
-  mutFinal <- mutationsWide[mutationsWide$Tumor_Sample_Barcode %in% clin$Tumor_Sample_Barcode, ]
+  mutFinal <- mutWide[mutWide$Tumor_Sample_Barcode %in% clin$Tumor_Sample_Barcode, ]
   
   # Some samples have mut data and no cnv data, splitting them off to make merging easier
   mutMerge <- mutFinal[mutFinal$Tumor_Sample_Barcode %in% cnvFinal$Tumor_Sample_Barcode, ]
@@ -93,25 +69,13 @@ dataPrep <- function(dataDir) {
   UV <- clin[ , c("Tumor_Sample_Barcode","UV_sig")]
   UV <- UV[!duplicated(UV$Tumor_Sample_Barcode), ]
   sigUV <- merge(everythingSig, UV, by = "Tumor_Sample_Barcode")
-  sigUVhigh <- sigUV[sigUV$UV_sig == "High", ]
-  sigUVlow <- sigUV[sigUV$UV_sig == "Low", ]
   write.csv(sigUV, "MutsAndDels_over5percent.csv", row.names = F)
-  write.csv(sigUVhigh, "UVhigh_MutsAndDels_over5percent.csvgh_MutsAndDels_over5percent.csv", row.names = F)
-  write.csv(sigUVlow, "UVlow_MutsAndDels_over5percent.csv", row.names = F)
   
-  highlowsig <- rbind(sigUVhigh, sigUVlow)
-  write.csv(highlowsig, "highLow_MutsAndDels_over5percent.csv", row.names = F)
-  # highlow <- rbind(UVhigh, UVlow)
-  # write.csv(highlow, "highLow_MutsAndDels_all.csv", row.names = F)
-  setwd(sourceDir)
+  finalDat <- sigUV[sigUV$UV_sig != "Moderate", ]
+  write.csv(finalDat, "MutsAndDels_over5pct_UVfiltered.csv", row.names = F)
 }
 
-dataPrep(skcmDir)
-dataPrep(dfci19Dir)
-dataPrep(uclaDir)
-
-### Data already prepared ###----------------------
-curve_ball<-function(m){
+curve_ball <- function(m) {  # Cite where this is from
   RC=dim(m)
   R=RC[1]
   C=RC[2]
@@ -140,170 +104,101 @@ curve_ball<-function(m){
   rm
 }
 
-perm <- function(dataDir, num) {
-  setwd(dataDir)
-  highlowsig <- fread("highLow_MutsAndDels_over5percent.csv")
-  row.names(highlowsig) <- highlowsig$Tumor_Sample_Barcode
-  m <- highlowsig[ , -1]
-  high <- m[m$UV_sig == "High", ]
+permTest <- function(dataDir, num) {
+  setwd(paste0(homeDir, "/data/", dataDir))
+  permData <- fread("MutsAndDels_over5pct_UVfiltered.csv")
+  row.names(permData) <- permData$Tumor_Sample_Barcode
+  mat <- permData[ , -1]
+  high <- mat[mat$UV_sig == "High", ]
   high <- high[, -"UV_sig"]
   highCols <- colSums(high)
-  low <- m[m$UV_sig == "Low", ]
+  low <- mat[mat$UV_sig == "Low", ]
   low <- low[, -"UV_sig"]
   lowCols <- colSums(low)
-  originalDif <- highCols - lowCols
-  m <- m[, -"UV_sig"]
+  dif <- highCols - lowCols
+  mat <- mat[, -"UV_sig"]
   h <- nrow(high)
   l <- nrow(low)
   
   x <- 1
   repeat {
-    curved <- curve_ball(m)
+    curved <- curve_ball(mat)
     curvedHigh <- curved[1:h, ]
     curvedHighCols <- colSums(curvedHigh)
     curvedLow <- curved[(h+1):(h+l), ]
     curvedLowCols <- colSums(curvedLow)
     curvedDif <- curvedHighCols - curvedLowCols
     
-    if (x == 1) { 
+    if (x == 1) {
       results <- as.data.frame(curved[1,])
-      results[,1] <- 0 
-      rownames(results) <- colnames(m)
+      results[,1] <- 0
+      rownames(results) <- colnames(mat)
       colnames(results) <- "p"
     }
-    for (i in 1:length(originalDif)) {
-      if (curvedDif[i] >= originalDif[i]) { results[i, ] <- results[i, ] + 1 }
+    for (i in 1:length(dif)) {
+      if (curvedDif[i] >= dif[i]) { results[i, ] <- results[i, ] + 1 }
     }
     
     if (x == num){
       pVals <- results
       pVals$Gene <- rownames(pVals)
-      write.csv(pVals, paste0("pVals_",x,"_permutations.csv"))
       pVals$p <- pVals$p / x
+      write.csv(pVals, paste0(x,"_Permutations_Raw.csv"), row.names = F)
       break
     }
     x = x+1
     print(x)
+    if (x%%25 == 0) { print(paste0(x, " permutations completed, ", num-x, " permutations left")) }
   }
 }
 
-perm(dfci19Dir, 1259)
+plotResults <- function(dataDir) {
+  setwd(paste0(homeDir, "/data/", dataDir))
+  file.ls <- list.files(path=getwd(),pattern="Permutations_Raw.csv")
+  results <- read.csv(file.ls)
 
-setwd(dfci19Dir)
-p1 <- read.csv("pVals_1240_permutations.csv", row.names = 1)
-p2 <- read.csv("pVals_1241_permutations.csv", row.names = 1)
-p3 <- read.csv("pVals_1252_permutations.csv", row.names = 1)
-p4 <- read.csv("pVals_1253_permutations.csv", row.names = 1)
-p5 <- read.csv("pVals_1257_permutations.csv", row.names = 1)
-p6 <- read.csv("pVals_1258_permutations.csv", row.names = 1)
-p7 <- read.csv("pVals_1259_permutations.csv", row.names = 1)
-p8 <- read.csv("pVals_1260_permutations.csv", row.names = 1)
+  qobj <- qvalue(p = results$p)
+  results$q <- qobj$qvalues
+  results$qlog <- -log10(results$q + 0.00000001)
+  results <- results[order(results$q),]
 
-final <- p1
-final$p <- 0
-final$p <- p1$p + p2$p + p3$p + p4$p + p5$p + p6$p + p7$p + p8$p
-final$p <- final$p / 10020
+  source("C:/Users/robmc/Desktop/NUMB/repairGenes.R") 
+  results$pathway <- ""
+  results$pathway[results$Gene %in% NERgenes] <- "NER"
+  results$pathway[results$Gene %in% melControl] <- "CTR"
+  results$pathway[results$Gene %in% HRgenes] <- "HR"
+  results$pathway[results$Gene %in% MMRgenes] <- "MMR"
+  results$pathway[results$Gene %in% BERgenes] <- "BER"
 
-library(qvalue)
-qobj <- qvalue(p = final$p)
-final$q <- qobj$qvalues
-final$qlog <- -log10(final$q + 0.00000001)
-final <- final[order(final$q),]
+  write.csv(results, "Permutation_Results_qValues.csv")
 
-source("C:/Users/robmc/Desktop/NER/R/oncoPlease.R")
-final$plot <- 0
-final$plot[final$Gene %in% NER] <- 5
-final$plot[final$Gene %in% controlGenes] <- 4
-final$plot[final$Gene %in% HR] <- 3
-final$plot[final$Gene %in% MMR] <- 2
-final$plot[final$Gene %in% BER] <- 1
+  results$rank <- seq.int(nrow(results))
+  results <- results[order(-results$q),]
+  results$rank[results$q == 0] <- max(results$rank[results$q == 0])
+  results$rank <- factor(results$rank, levels = unique(results$rank))
+  highlight <- results[results$pathway != "", ]
 
-final$pathway[final$plot == 5] <- "NER"
-final$pathway[final$plot == 4] <- "CTR"
-final$pathway[final$plot == 3] <- "HR"
-final$pathway[final$plot == 2] <- "MMR"
-final$pathway[final$plot == 1] <- "BER"
+  resultsDir <- paste0(homeDir,"/results/",dataDir,"/")
+  if (!dir.exists(resultsDir)) {  dir.create(resultsDir)  }
+  setwd(resultsDir)
+  
+  permPlot <- ggplot(results, aes(x = rank, y = qlog)) +
+    geom_point() +
+    geom_point(data = highlight, aes(x = rank, y = qlog, color = factor(pathway)),
+               size = 3) +
+    theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+          panel.background = element_blank(), axis.line = element_line(colour = "black"),
+          legend.text=element_text(size = 8)) +
+    geom_label_repel(aes(label=ifelse(pathway != "",as.character(Gene),'')),
+                     box.padding = 0.5,
+                     point.padding = 0.5,
+                     max.overlaps = Inf,
+                     segment.color = 'grey50')
+  permPlot
+  ggsave("Permutation_Test_Plot.pdf", width = 10, height = 5, units = "in")
+}
 
-write.csv(final, "final_withQ.csv")
-
-figure <- read.csv("final_withQ.csv")
-figure <- figure[order(figure$q),]
-figure$rank <- seq.int(nrow(figure))
-figure <- figure[order(-figure$q),]
-figure$rank[figure$q == 0] <- 849
-figure$rank <- as.numeric(figure$rank)
-figure$rank <- factor(figure$rank, levels = unique(figure$rank))
-highlight <- figure[figure$plot != 0, ]
-
-library(ggplot2)
-library(ggrepel)
-p <- ggplot(figure, aes(x = rank, y = qlog)) +
-  geom_point() +
-  geom_point(data = highlight, aes(x = rank, y = qlog, color = factor(pathway)),
-             size = 3) +
-  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
-        panel.background = element_blank(), axis.line = element_line(colour = "black"), 
-        legend.text=element_text(size = 8)) +
-  geom_label_repel(aes(label=ifelse(plot != 0,as.character(Gene),'')),
-                   box.padding = 0.5,
-                   point.padding = 0.5,
-                   max.overlaps = Inf,
-                   segment.color = 'grey50')
-p
-ggsave("figure.pdf", width = 10, height = 5, units = "in")
-
-
-
-setwd(uclaDir)
-p1 <- read.csv("pVals_10000_permutations.csv", row.names = 1)
-
-final <- p1
-final$p <- final$p / 10000
-
-library(qvalue)
-qobj <- qvalue(p = final$p)
-final$q <- qobj$qvalues
-final$qlog <- -log10(final$q + 0.00000001)
-final <- final[order(final$q),]
-
-source("C:/Users/robmc/Desktop/NER/R/oncoPlease.R")
-final$plot <- 0
-final$plot[final$Gene %in% NER] <- 5
-final$plot[final$Gene %in% controlGenes] <- 4
-final$plot[final$Gene %in% HR] <- 3
-final$plot[final$Gene %in% MMR] <- 2
-final$plot[final$Gene %in% BER] <- 1
-
-final$pathway[final$plot == 5] <- "NER"
-final$pathway[final$plot == 4] <- "CTR"
-final$pathway[final$plot == 3] <- "HR"
-final$pathway[final$plot == 2] <- "MMR"
-final$pathway[final$plot == 1] <- "BER"
-
-write.csv(final, "final_withQ.csv")
-
-figure <- read.csv("final_withQ.csv")
-figure <- figure[order(figure$q),]
-figure$rank <- seq.int(nrow(figure))
-figure <- figure[order(-figure$q),]
-figure$rank[figure$q == 0] <- 849
-figure$rank <- as.numeric(figure$rank)
-figure$rank <- factor(figure$rank, levels = unique(figure$rank))
-highlight <- figure[figure$plot != 0, ]
-
-library(ggplot2)
-library(ggrepel)
-p <- ggplot(figure, aes(x = rank, y = qlog)) +
-  geom_point() +
-  geom_point(data = highlight, aes(x = rank, y = qlog, color = factor(pathway)),
-             size = 3) +
-  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
-        panel.background = element_blank(), axis.line = element_line(colour = "black"), 
-        legend.text=element_text(size = 8)) +
-  geom_label_repel(aes(label=ifelse(plot != 0,as.character(Gene),'')),
-                   box.padding = 0.5,
-                   point.padding = 0.5,
-                   max.overlaps = Inf,
-                   segment.color = 'grey50')
-p
-ggsave("figure.pdf", width = 10, height = 5, units = "in")
+### Data already prepared ###----------------------
+dataPrep("skcm_tcga")
+permTest("skcm_tcga", 100)
+plotResults("skcm_tcga")
