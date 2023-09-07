@@ -12,6 +12,7 @@ homeDir <- "C:/Users/robmc/Desktop/NUMB_files"
 
 ## Function area  --------------------------------------------------------
 plotSigs <- function(sigs, clin) {
+  # Name signatures to be highlited during plotted, anything not named here will be shown as "Other"
   sig <- sigs[,-c(7:10, 69)] # Remove UV signature for now, will be re-added later
   hr_defect <- c("SBS3")
   mmr_defect <- c("SBS6", "SBS15", "SBS20", "SBS21", "SBS26", "SBS44")
@@ -40,7 +41,7 @@ plotSigs <- function(sigs, clin) {
   pal[1] <- "#FFFF00"
   pal[7] <- "#808080"
   
-  # Create the plot, using signatures to dictate fill of the bars
+  # Plot signature breakdown per sample using signatures to dictate fill of the bars, sorted by decreasing UV signature level
   cosmicPlot <- ggplot(sigPlotDat, aes(x=Tumor_Sample_Barcode, y=value, fill=variable)) +
     geom_bar(position="stack", stat="identity", width = 1) +
     scale_fill_manual(values = pal) +
@@ -54,7 +55,8 @@ plotSigs <- function(sigs, clin) {
     guides(fill=guide_legend(nrow=4,byrow=TRUE))
   print(cosmicPlot)
   ggsave("COSMICsigs.pdf", width = 8, height = 8, units = "in")
-  
+
+  # Plot average UV signature as % of total signature by level
   clin$UV_sig <- factor(clin$UV_sig, levels = unique(clin$UV_sig))
   UVbyLplot <- ggplot(clin, aes(x=UV_sig, y=UV_sig_value, fill=UV_sig)) +
     geom_boxplot() + 
@@ -69,6 +71,7 @@ plotSigs <- function(sigs, clin) {
 }
   
 plotTNM <- function(clin, tnm) {
+  # Condense trinucleotide contexts into standard SNV notation
   tnm2 <- as.data.frame(tnm$X)
   tnm2$C.A <- rowSums(tnm[ , c(2:17)])
   tnm2$C.G <- rowSums(tnm[ , c(18:33)])
@@ -88,7 +91,9 @@ plotTNM <- function(clin, tnm) {
   temp2$Tumor_Sample_Barcode <- factor(temp2$Tumor_Sample_Barcode, levels = unique(temp2$Tumor_Sample_Barcode))
   tnmPlotDat <- reshape2::melt(temp2)
   pal2 <- diverging_hcl(8, palette="Purple-Green")
-  
+
+  # Plot SNV class breakdown per sample with further detailing of C>T mutations with respect to occurrence at dipyrimidine sites
+  # sorted by decreasing UV signature level
   tnmPlot <- ggplot(tnmPlotDat, aes(fill = variable, y=value, x=Tumor_Sample_Barcode)) +
     geom_bar(position="fill", stat="identity", width = 1) +
     scale_fill_manual(values = pal2) +
@@ -100,7 +105,8 @@ plotTNM <- function(clin, tnm) {
           panel.background = element_blank(), axis.line = element_line(colour = "black"), legend.text=element_text(size = 8))
   print(tnmPlot)
   ggsave("TNM.pdf", width = 8, height = 8, units = "in")
-  
+
+  # Plot C>T transversions at dipyrimidine occurrence (in context of all mutation classes) by UV level
   CTpct <- temp %>% mutate(CT.Dipyr.pct = .[,7]/rowSums(select(., -c(1,9,10))))
   CTpct$UV_sig <- factor(CTpct$UV_sig, levels=unique(CTpct$UV_sig))
   CTbreakdownPlot <- ggplot(CTpct, aes(fill=UV_sig, y=CT.Dipyr.pct, x=UV_sig)) + 
@@ -116,7 +122,7 @@ plotTNM <- function(clin, tnm) {
 }
 
 plotSNVs <- function(clin, mutations) {
-  # Average SNV plot
+  # Plot average SNV by UV level
   muts <- mutations[mutations$Variant_Classification != "Silent",]
   temp <- as.data.frame(table(muts$Tumor_Sample_Barcode))
   colnames(temp)[1] <- "Tumor_Sample_Barcode"
@@ -135,7 +141,7 @@ plotSNVs <- function(clin, mutations) {
   print(AvgSNVplot)
   ggsave("Average_SNV_By_Level.pdf")
   
-  # Individual SNV plot
+  # Plot SNV per sample, sorted by descending UV signature level
   tempClin$Tumor_Sample_Barcode <- factor(tempClin$Tumor_Sample_Barcode, levels = unique(tempClin$Tumor_Sample_Barcode))
   
   library(ggbreak)
@@ -149,7 +155,7 @@ plotSNVs <- function(clin, mutations) {
     theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
           panel.background = element_blank(), axis.line = element_line(colour = "black"), legend.text=element_text(size = 8))
   print(sampleSNVplot)
-  ggsave("Average_SNV_Per_Sample.pdf", width = 7, height = 2, units = "in")
+  ggsave("SNV_Per_Sample.pdf", width = 7, height = 2, units = "in")
   
   tempClin$index <- seq.int(nrow(tempClin)) 
   tempClin$TMBlog10 <- log10(tempClin$TMB_NONSYNONYMOUS)
@@ -158,7 +164,8 @@ plotSNVs <- function(clin, mutations) {
   mean <- tempClin %>% 
     group_by(UV_sig) %>% 
     summarise(mean_val = mean(TMBlog10))
-  
+
+  # Plot TMB per sample, sorted by decreasing UV signature level
   TMBplot <- ggplot(tempClin, aes(x=-UV_sig_value, y = TMBlog10, color = UV_sig)) +
     geom_point() +
     scale_color_manual(values = c("#FF0000", "#FFA500", "#4F53B7")) +
@@ -178,7 +185,7 @@ plotSNVs <- function(clin, mutations) {
 }
 
 plotFeatures <- function(clin) {
-  # Age plot
+  # Group ages, groups are semi-arbitrary
   clin$Age_Group[clin$AGE < 30] <- "< 30"
   clin$Age_Group[clin$AGE >= 30 &
                    clin$AGE <= 50] <- "30-50"
@@ -186,7 +193,8 @@ plotFeatures <- function(clin) {
                    clin$AGE <= 80] <- "51-80"
   clin$Age_Group[clin$AGE > 80] <- "80+"
   agecolors <- sequential_hcl(4, palette="Viridis")
-  
+
+  # Plot prevalence of UV-signature high for each age group
   ageTable <- prop.table(table(clin$Age_Group, clin$UV_sig), margin = 1)
   age <- as.data.frame(ageTable[,1])
   colnames(age) <- "High"
@@ -208,7 +216,8 @@ plotFeatures <- function(clin) {
                                      clin$Tumor_Stage == "Stage IV"] <- "High Stage"
     clin$Tumor_Stage[is.na(clin$Tumor_Stage) == F & 
                                      clin$Tumor_Stage != "High Stage"] <- "Low Stage"
-    
+
+    # Plot prevalence of UV-signature high for each stage group
     stageDat <- table(clin$Tumor_Stage, clin$UV_sig)
     stageTable <- stageDat[,-3]
     stage <- as.data.frame(prop.table(stageTable, margin = 2))
@@ -223,7 +232,7 @@ plotFeatures <- function(clin) {
     ggsave("HighByStage.pdf", width = 6, height = 3, units = "in")
   }
   
-  # Rest of clinical features as bar graph which lines up with plotted signatures
+  # Create feature list from user selected inputs, only allowing inputs which exist within clinical file
   features <- list()
   input <- ""
   while (input != "done") {
@@ -240,7 +249,8 @@ plotFeatures <- function(clin) {
       print("Feature added successfully!")
     }
   }
-  
+
+  # Create random palettes for each user selected feature, matching Age_Group palette to previous plot if selected
   cols <- hcl_palettes("sequential")
   for (i in 1:length(features)) {
     tClin <- clin[,c(features[[i]], "UV_sig_value")] 
@@ -257,7 +267,8 @@ plotFeatures <- function(clin) {
     } else {
       tPal <- c("#FF0000", "#4F53B7", "#FFA500")
     }
-    
+
+    # Plot feature status per sample, sorted by decreasing UV signature level
     featureGraph <- ggplot(tClin, aes(x = index)) +
       geom_bar(aes(fill = tClin[,1])) +
       labs(fill = colnames(tClin)[1], x = "Signature 7 (decreasing)", y = NULL) +
@@ -278,7 +289,8 @@ plotControls <- function(clin, mutations) {
   mutFilter <- mutations[mutations$Tumor_Sample_Barcode %in% clin$Tumor_Sample_Barcode, ]
   mutFilter <- mutFilter[mutFilter$Hugo_Symbol %in% melControl, ]
   mutFilter <- mutFilter[mutFilter$Variant_Classification != "Silent", ]
-  
+
+  # Plot mutation status by UV level for each melanoma control gene, with specific conditions for BRAF
   for (i in 1:length(melControl)) {
     gene <- melControl[i]
     geneMut <- mutFilter[mutFilter$Hugo_Symbol == gene, ]
@@ -321,6 +333,7 @@ plotControls <- function(clin, mutations) {
 }
 
 plotSurvival <- function(clin) {
+  # Plot survival curve for cohort, stratifying by UV signature level
   clin$OS_MONTHS <- as.numeric(clin$OS_MONTHS)
   clin$OS_STATUS <- as.numeric(substr(clin$OS_STATUS, 1, 1))
   
@@ -335,6 +348,7 @@ plotSurvival <- function(clin) {
 }
 
 plot10gene <- function(clin, mutations) {
+  # Plot 10 gene mutational signature (previously reported in another paper) by UV signature level 
   tenGene <- c("LRP1B", "GPR98", "XIRP2", "PKHD1L1", "USH2A", "DNAH9", "PCDH15", "DNAH10", "TP53", "PCDHAC1")
   initial <- mutations[mutations$Hugo_Symbol %in% tenGene, ]
   dat <- initial[ , c("Hugo_Symbol", "Variant_Classification", "Tumor_Sample_Barcode")]
@@ -367,6 +381,7 @@ plot10gene <- function(clin, mutations) {
   ggsave("10_Gene_Plot.pdf", height = 3, width = 6, units = "in")
 }
 
+# Load required data (all generated by processData.R) and execute plot generation
 generatePlots <- function(dataDir, subDir = "") {
   setwd(paste0(homeDir, "/data/", dataDir))
   clin <- read.csv("clinical.csv")
