@@ -13,11 +13,11 @@ homeDir <- "C:/Users/robmc/Desktop/NUMB_files"
 
 ## Function area  --------------------------------------------------------
 generateOncoplot <- function(mutations, clin, cnv) {
+  # Leverage maftools package to generate oncoplot, maf object can take some time to load
   maf <- read.maf(maf = mutations,
                   clinicalData = clin,
                   cnTable = cnv,
                   isTCGA = F)
-  
   
   uvcolors=c("#FF0000", "#FFA500", "#4F53B7")
   names(uvcolors)=c("High","Moderate","Low")
@@ -34,7 +34,7 @@ generateOncoplot <- function(mutations, clin, cnv) {
   dev.off()
 }
 
-analyzeNER <- function(clin, mutSig, cnvSig) {
+analyzeNER <- function(clin, combinedSig) {
   tempClin <- clin[, c("Tumor_Sample_Barcode", "UV_sig", "UV_sig_value", "NER_sig")]
   tempClin$NER_sig[tempClin$NER_sig > 1] <- 1
   pathDat <- as.data.frame(prop.table(table(tempClin$UV_sig, tempClin$NER_sig)))
@@ -46,7 +46,8 @@ analyzeNER <- function(clin, mutSig, cnvSig) {
   # lowSum <- sum(tempClin$NER_sig[tempClin$UV_sig == "Low"])
   # n <- as.data.frame(table(tempClin$UV_sig))
   # pathDat <- data.frame(UV_Level = c("High", "Low"), Altered = c(highSum/n[1,2], lowSum/n[2,2]))
-  
+
+  # Plot % of samples with NER pathway alteration by UV level (excluding moderate)
   nerPathPlot <- ggplot(pathDat, aes(x=Var1, y=Freq, fill = Var1)) +
     geom_col() +
     scale_y_continuous(limits = c(0, 0.6), expand = c(0,0)) +
@@ -58,24 +59,9 @@ analyzeNER <- function(clin, mutSig, cnvSig) {
           panel.background = element_blank(), axis.line = element_line(colour = "black"), legend.text=element_text(size = 8))
   print(nerPathPlot)
   ggsave("NER_pcts.pdf", width = 4, height = 4, units = "in")
-  
-  m <- data.frame(mutSig, row.names = 1)
-  m <- m*0.1
-  c <- data.frame(cnvSig, row.names = 1)
-  
-  both <- bind_rows(c %>% tibble::rownames_to_column(), 
-                    m %>% tibble::rownames_to_column()) %>% 
-    group_by(rowname) %>% 
-    summarise_all(sum)
-  
-  both[both == 0 | both == 1 | both == 2] <- 0
-  both[both == -0.9 | both == -1.9] <- 1
-  both[both == 0.1] <- 1
-  both[both == -1 | both == -2] <- 1
-  both[both == 1.1 | both == 2.1] <- 1
-  
-  nerSig <- both[ , colnames(both) %in% c("rowname", "CETN2", "GTF2H2", "ERCC8", "CDK7", "CCNH", "ERCC6", "RAD23B")]
-  colnames(nerSig)[1] <- "Tumor_Sample_Barcode"
+
+  nerSig <- combinedSig[ , colnames(combinedSig) %in% c("rowname", "CETN2", "GTF2H2", "ERCC8", "CDK7", "CCNH", "ERCC6", "RAD23B")]
+  nerSig$Tumor_Sample_Barcode <- rownames(nerSig)
   geneClin <- merge(tempClin, nerSig, by = "Tumor_Sample_Barcode")
   geneClin <- geneClin[ , -c(1,3,4)]
   geneDat <- data.frame()
@@ -90,7 +76,8 @@ analyzeNER <- function(clin, mutSig, cnvSig) {
     #                                 sum(temp[,2][temp$UV_sig == "Low"])/length(temp$UV_sig[temp$UV_sig == "Low"])))
     geneDat <- rbind(geneDat, toAdd)
   }
-  
+
+  # Plot % of samples with alteration for each specific gene in NER signature by UV level (excluding moderate)
   nerGenePlot <- ggplot(geneDat, aes(x=reorder(Gene,-Altered), y=Altered, fill = UV_Level)) +
     geom_col(position = "dodge") +
     scale_y_continuous(limits = c(0, 0.6), expand = c(0,0)) +
@@ -105,6 +92,7 @@ analyzeNER <- function(clin, mutSig, cnvSig) {
 }
 
 nerSurvival <- function(clin) {
+  # Create multi-condition strata for each combination of UV level and NER proficiency status (excluding UV moderate)
   surv <- clin
   surv <- surv[surv$UV_sig != "Moderate", ]
   surv$Combination[surv$UV_sig == "High" & surv$NER_sig == 0] <- "UV High, NER Proficient"
@@ -113,7 +101,8 @@ nerSurvival <- function(clin) {
   surv$Combination[surv$UV_sig == "Low" & surv$NER_sig > 0] <- "UV Low, NER Deficient"
   surv$OS_MONTHS <- as.numeric(surv$OS_MONTHS)
   surv$OS_STATUS <- as.numeric(substr(surv$OS_STATUS, 1, 1))
-  
+
+  # Plot survival for each possible combination status
   survival <- ggsurvplot(fit = surv_fit(Surv(OS_MONTHS, OS_STATUS) ~ Combination, data = surv),
              xlab = "Months",
              ylab = "Overall survival probability",
@@ -123,6 +112,7 @@ nerSurvival <- function(clin) {
   ggsave("Survival_NER.pdf", width = 8.62, height = 5.47, units = "in")
 }
 
+# Load data and execute plotting functions
 nerAnalysis <- function(dataDir, subDir) {
   setwd(paste0(homeDir, "/data/", dataDir))
   
@@ -133,8 +123,7 @@ nerAnalysis <- function(dataDir, subDir) {
   } else { mutations <- fread("data_mutations.txt") }
   mutations$Hugo_Symbol[mutations$Hugo_Symbol == "CUL4A" | mutations$Hugo_Symbol == "CUL4B"] <- "CUL4A/B" 
   
-  cnvSig <- read.csv("NER_cnvSig.csv")
-  mutSig <- read.csv("NER_mutSig.csv")
+  combinedSig <- read.csv("NER_mutCNVsig.csv", row.names = 1)
   
   cnv <- fread("data_cna.txt")
   cnv <- unique(cnv[!duplicated(cnv$Hugo_Symbol), ])
@@ -159,7 +148,7 @@ nerAnalysis <- function(dataDir, subDir) {
   }
   
   generateOncoplot(mutations, clin, cnv2)
-  analyzeNER(clin, mutSig, cnvSig)
+  analyzeNER(clin, combinedSig)
   nerSurvival(clin)
 }
 ## Execute code -------------------
