@@ -9,9 +9,11 @@ load("C:/Users/robmc/Desktop/NUMB_files/data/signatures.genome.cosmic.v3.may2019
 homeDir <- "C:/Users/robmc/Desktop/NUMB_files"
 
 ## processData function ##----------------------
+# Data processing designed for use with cohorts downloaded from cBioPortal.org
 processData <- function(directory, filter = F, minMut = 30) {
   setwd(paste0(homeDir, "/data/", directory))
-  
+
+  # Creating combined clinical file from sample and patient files
   sample <- fread("data_clinical_sample.txt", skip=4)
   patient <- fread("data_clinical_patient.txt", skip=4)
   clin <- merge(sample, patient, by = "PATIENT_ID")
@@ -30,6 +32,7 @@ processData <- function(directory, filter = F, minMut = 30) {
   
   # Format chromosome column to match BSgenome format
   mutations$Chromosome <- sub("^", "chr", mutations$Chromosome)
+  # begin deconstructSigs workflow
   sigs <- mut.to.sigs.input(mut.ref = mutations, sample.id = "Tumor_Sample_Barcode", chr = "Chromosome",
                             pos = "Start_Position", ref = "Reference_Allele", 
                             alt = "Tumor_Seq_Allele2", bsg = BSgenome.Hsapiens.UCSC.hg19)
@@ -54,7 +57,8 @@ processData <- function(directory, filter = F, minMut = 30) {
   expo <- expo[order(-expo$UV_sig),]
   expo$SAMPLE_ID <- gsub(".weights","",expo$SAMPLE_ID)
   write.csv(expo, "mutationalSignatures.csv", row.names = F)
-  
+
+  # Merge deconvoluted sigs with previously prepared clinical file
   clinFinal <- clin[which(clin$SAMPLE_ID %in% expo$SAMPLE_ID), ]
   expo <- expo[order(expo$SAMPLE_ID),]
   clinFinal$UV_sig_value <- expo$UV_sig
@@ -67,7 +71,8 @@ processData <- function(directory, filter = F, minMut = 30) {
   mutations$Hugo_Symbol[mutations$Hugo_Symbol == "CUL4A" | mutations$Hugo_Symbol == "CUL4B"] <- "CUL4A/B"
   mutations <- mutations[mutations$Hugo_Symbol %in% NERgenes, ]
   mutations <- mutations[mutations$Variant_Classification != "Silent", ]
-  
+
+  # Catalog nonsynonymous mutation events and CNV deletions in NER genes for the cohort
   clinMut <- as.data.frame(clinFinal$Tumor_Sample_Barcode)
   colnames(clinMut)[1] <- "Tumor_Sample_Barcode"
   for (i in NERgenes) {
@@ -92,7 +97,8 @@ processData <- function(directory, filter = F, minMut = 30) {
     clinCNV[[i]][match(cnv$Sample_name, clinCNV$Tumor_Sample_Barcode)] <- cnv$CN
   }
   write.csv(clinCNV, "NER_cnvSig.csv", row.names = F)
-  
+
+  # Combine mutation and CNV events to form total NER impact
   m <- data.frame(clinMut, row.names = 1)
   m <- m*0.1
   c <- data.frame(clinCNV, row.names = 1)
@@ -107,12 +113,15 @@ processData <- function(directory, filter = F, minMut = 30) {
   both[both == 0.1] <- 1
   both[both == -1 | both == -2] <- 1
   both[both == 1.1 | both == 2.1] <- 1
-  
+  write.csv(both, "NER_mutCNVsig.csv", row.names = T)
+
+  # Filter to smaller set of NER genes (previously determined) for creation of NER signature
   nerSig <- both[ , colnames(both) %in% c("CETN2", "GTF2H2", "ERCC8", "CDK7", "CCNH", "ERCC6", "RAD23B")]
   nerSig$NER_sig <- with(nerSig, rowSums(nerSig))
   nerSig$Tumor_Sample_Barcode <- both$rowname
   keep <- nerSig[,c("Tumor_Sample_Barcode", "NER_sig")]
-  
+
+  # Merge with clinical file, and ouptut finalized clincal data with UV and NER signature included
   allDat <- merge(clinFinal, keep, by = "Tumor_Sample_Barcode")
   allDat <- allDat[order(-allDat$UV_sig_value),]
   write.csv(allDat, "clinical.csv", row.names = F)
