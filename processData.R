@@ -128,4 +128,7 @@ processData <- function(directory, filter = F, minMut = 30) {
 }
 
 ## Execute code -------------------
-processData("skcm_tcga", filter = T)
+# directory is the name of the folder contained in /data/ to run the function on
+# If filter = T is selected, function checks for filter.csv file and only uses those samples moving forward
+# minMut sets the minimum number of mutations required in a sample to be valid for signature analysis
+processData(directory = "skcm_tcga", filter = T, minMut = 30)
